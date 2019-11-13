@@ -1,5 +1,5 @@
 source("Tools.R")
-required_packages <- c("tsibble", "magrittr", "dplyr", "jsonlite", "lubridate")
+required_packages <- c("tsibble", "magrittr", "dplyr", "jsonlite", "lubridate", "rmarkdown")
 Require.packages(required_packages)
 
 if (!file.exists("./Data/climate_data.Rda")) {
@@ -12,19 +12,31 @@ if (!file.exists("./Data/climate_data.Rda")) {
                function(x) data.frame(c(x, sapply(setdiff(climate.colnames, names(x)),
   function(y) NA)))))
 
-  climate.data %<>% filter(., station == 28079035)
-  climate.data %<>% transform(date = as.character(date))
-  climate.data %<>% transform(date = parse_date_time(date, "ymd HMS"))
-  climate.data %<>% as_tsibble(key = station, index = date)
-
+  climate.data %<>% filter(., station == 28079024)
+  climate.data %<>% subset(select = -c(PM25, NO, CH4))
   saveRDS(climate.data, file = "./Data/climate_data.Rda")
 }
 
 climate.data.hourly <- readRDS(file = "./Data/climate_data.Rda")
-climate.data <- climate.data.hourly %>%
-    index_by(ymd = ymd(date)) %>%
-    summarise(
-#TODO: do this
+names(climate.data.hourly) <- c("Hour", "BEN", "CO", "EBE", "MXY", "NMHC", "NO_2", "NOx",
+                                "OXY", "O_3", "PM10", "PXY", "SO_2", "TCH", "TOL", "station")
+climate.data.hourly %<>% transform(Hour = as.character(Hour))
+climate.data.hourly %<>% transform(Hour = parse_date_time(Hour, "ymd HMS"))
+climate.data.hourly <- climate.data.hourly[complete.cases(climate.data.hourly),]
+climate.data.hourly %<>% as_tsibble(key = station, index = Hour)
+climate.data.daily <- climate.data.hourly %>% index_by(date = as.Date(Hour)) %>%
+summarise(
+      BEN = mean(BEN),
+      CO = mean(CO),
+      EBE = mean(EBE),
+      MXY = mean(MXY),
+      NMHC = mean(NMHC),
+      NO_2 = mean(NO_2),
+      NOx = mean(NOx),
+      OXY = mean(OXY),
+      O_3 = mean(O_3),
+      PM10 = mean(PM10),
+      PXY = mean(PXY)
     )
 
 
@@ -43,14 +55,14 @@ if (!file.exists("./Data/weather_data.Rda")) {
     names(weather.data) <- c("date", "station", "medTemp", "prec", "minTemp", "minTempTime", "maxTemp", "maxTempTime", "windDir", "avgWindSpeed", "maxGustSpeed", "maxGustTime", "sun", "maxPres", "maxPresTime", "minPres", "minPresTime")
 
     #Write this to CSV for easier access later
-    write.csv(weather.data, file = "./Data/weather_data.csv")
+    write.csv(weather.data, file = "./Data/weather_data.cvv", row.names = FALSE)
   }
 
-  weather.data <- read.csv(file = "./Data/weather_data.csv", dec = ",", stringsAsFactors = FALSE)
+  weather.data <- read.csv(file = "./Data/weather_data.cvv", dec = ",", stringsAsFactors = FALSE)
   weather.data[weather.data == "Varias"] <- NA
   weather.data[weather.data == "Ip"] <- 0
   weather.data %<>%
-  subset(select = -c(X)) %>%
+  subset(select = -c(minTempTime, maxTempTime, maxPresTime, maxGustTime, minPresTime)) %>%
     transform(date = as.character(date)) %>%
     transform(date = ymd(date)) %>%
     as_tsibble(key = station, index = date)
@@ -59,3 +71,7 @@ if (!file.exists("./Data/weather_data.Rda")) {
 }
 
 weather.data <- readRDS(file = "./Data/weather_data.Rda")
+merged <- left_join(climate.data.daily, weather.data, by = c("date"))
+merged %<>% subset(select = -c(station))
+saveRDS(merged, file = "./Data/merged.Rda")
+write.csv(merged, file = "./merged.csv", row.names = FALSE)
